@@ -1,10 +1,17 @@
 # Tool Inventory Web App
 
-A self-hosted, mobile-friendly tool inventory web application using [NocoDB](https://nocodb.com/) (open-source Airtable alternative). This allows you to quickly search and browse your tool collection without any custom UI code—just NocoDB and Docker.
+A self-hosted, mobile-friendly tool inventory web application with a simple, senior-friendly custom frontend. Built on [NocoDB](https://nocodb.com/) (open-source Airtable alternative) for data management, with a clean interface featuring large, easy-to-use buttons.
 
 ## What This Is
 
-A fast search tool database designed for easy mobile access. The primary workflow is searching and browsing tools. You can optionally mark tools as "Loaned Out" with notes, and track tools that need repair.
+A fast search tool database designed for easy access, especially for seniors. Features a simple custom frontend with large buttons for common actions:
+- **Find a Tool** - Search for tools in your inventory
+- **Add a Tool** - Add new tools to your collection
+- **Repair a Tool** - View and update tools that need repair
+- **Move a Tool** - Change a tool's location
+- **Inventory Overview** - See your complete inventory
+
+The frontend is designed to be dead simple—no hidden menus or complex navigation.
 
 ## Quick Start
 
@@ -20,8 +27,10 @@ A fast search tool database designed for easy mobile access. The primary workflo
    ./scripts/dev-up.sh
    ```
 
-3. **Access NocoDB:**
-   Open [http://localhost:8080](http://localhost:8080) in your browser.
+3. **Access the application:**
+   Open [http://localhost:8084](http://localhost:8084) in your browser to use the custom frontend.
+   
+   To access NocoDB directly (for setup/administration), you can access it through the API at `/api` or modify the Caddyfile routing.
 
 4. **Stop the application:**
    ```bash
@@ -50,13 +59,41 @@ A fast search tool database designed for easy mobile access. The primary workflo
    ./scripts/prod-up.sh
    ```
 
-5. **Access NocoDB:**
-   Open `http://SERVER_IP:18080` in your browser.
+5. **Access the application:**
+   Open `http://SERVER_IP:18080` in your browser to use the custom frontend.
+   
+   To access NocoDB directly (for setup/administration), you can access it through the API at `/api` or modify the Caddyfile routing.
 
 6. **Stop the application:**
    ```bash
    ./scripts/prod-down.sh
    ```
+
+## API Setup
+
+The custom frontend requires an API token to connect to NocoDB. Here's how to set it up:
+
+1. **Access NocoDB directly:**
+   - For development: Access NocoDB UI at `http://localhost:8084/nocodb`
+   - This allows you to set up tables and generate API tokens
+
+2. **Create an API Token:**
+   - Log into NocoDB
+   - Go to **Settings** (gear icon) → **Token Management**
+   - Click **Generate New Token**
+   - Copy the token (you'll only see it once!)
+
+3. **Configure the Frontend:**
+   - Open the custom frontend at `http://localhost:8084`
+   - When prompted, paste your API token
+   - The app will automatically discover your projects and tables
+   - You can also access settings by clicking the ⚙️ button in the top-right corner
+
+4. **Troubleshooting:**
+   - If the app can't find your tables, make sure:
+     - Your project is named something with "tool" in it (or it will use the first project)
+     - Your tables are named exactly "Tools" and "Locations" (case-sensitive)
+   - If API calls fail, check that your token is still valid in NocoDB settings
 
 ## Data Model
 

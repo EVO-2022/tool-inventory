@@ -1,8 +1,26 @@
 :80 {
-    reverse_proxy nocodb:8080 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
+    # Route API calls to NocoDB
+    handle /api/* {
+        reverse_proxy nocodb:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    
+    # Route NocoDB UI for setup (access at /nocodb)
+    handle /nocodb/* {
+        reverse_proxy nocodb:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    
+    # Route everything else to the frontend
+    handle {
+        reverse_proxy frontend:80
     }
 }

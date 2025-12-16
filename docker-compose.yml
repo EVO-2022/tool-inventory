@@ -11,6 +11,15 @@ services:
       - tool-inventory-network
     restart: unless-stopped
 
+  frontend:
+    image: nginx:alpine
+    container_name: tool-inventory-frontend
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    networks:
+      - tool-inventory-network
+    restart: unless-stopped
+
   caddy:
     image: caddy:2
     container_name: tool-inventory-caddy
@@ -25,6 +34,7 @@ services:
       - tool-inventory-network
     depends_on:
       - nocodb
+      - frontend
 
 networks:
   tool-inventory-network:

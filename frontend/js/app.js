@@ -1,0 +1,767 @@
+// Configuration
+const API_BASE = '/api/v1'; // Proxied through Caddy to NocoDB
+
+// Storage for configuration
+let apiToken = localStorage.getItem('nocodb_api_token') || '';
+let projectId = localStorage.getItem('nocodb_project_id') || '';
+let toolsTableId = localStorage.getItem('nocodb_tools_table_id') || '';
+let locationsTableId = localStorage.getItem('nocodb_locations_table_id') || '';
+let columnMap = {}; // Maps field names to column IDs
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', async () => {
+    await initializeApp();
+});
+
+async function initializeApp() {
+    // Check if we need to configure API token
+    if (!apiToken) {
+        showApiTokenPrompt();
+    } else {
+        await discoverTables();
+    }
+}
+
+// Show API token configuration prompt
+function showApiTokenPrompt() {
+    const token = prompt('Enter your NocoDB API Token:\n\n(You can find this in NocoDB: Settings > Token Management)\n\nLeave empty to skip for now.');
+    if (token) {
+        apiToken = token.trim();
+        localStorage.setItem('nocodb_api_token', apiToken);
+        discoverTables();
+    }
+}
+
+// Show settings
+function showSettings() {
+    showModal(`
+        <h2 style="font-size: 36px; margin-bottom: 30px;">Settings</h2>
+        <div class="form-group">
+            <label>API Token:</label>
+            <input type="text" id="settings-token" value="${apiToken ? '••••••••' : ''}" placeholder="Enter API token..." style="font-size: 24px; padding: 15px;">
+            <p style="font-size: 20px; color: #7f8c8d; margin-top: 10px;">Find this in NocoDB: Settings > Token Management</p>
+        </div>
+        <div class="form-group">
+            <label>Current Configuration:</label>
+            <div style="font-size: 20px; padding: 15px; background-color: #ecf0f1; border-radius: 8px;">
+                <p><strong>Project ID:</strong> ${projectId || 'Not set'}</p>
+                <p><strong>Tools Table ID:</strong> ${toolsTableId || 'Not set'}</p>
+                <p><strong>Locations Table ID:</strong> ${locationsTableId || 'Not set'}</p>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-primary" onclick="saveSettings()">Save & Refresh</button>
+            <button class="btn btn-secondary" onclick="clearSettings()">Clear All Settings</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+        </div>
+    `);
+}
+
+function saveSettings() {
+    const newToken = document.getElementById('settings-token').value.trim();
+    if (newToken && newToken !== '••••••••') {
+        apiToken = newToken;
+        localStorage.setItem('nocodb_api_token', apiToken);
+    }
+    
+    // Clear cached IDs to force rediscovery
+    projectId = '';
+    toolsTableId = '';
+    locationsTableId = '';
+    localStorage.removeItem('nocodb_project_id');
+    localStorage.removeItem('nocodb_tools_table_id');
+    localStorage.removeItem('nocodb_locations_table_id');
+    
+    closeModal();
+    showMessage('info', 'Settings saved. Rediscovering tables...');
+    discoverTables();
+}
+
+function clearSettings() {
+    if (confirm('Clear all settings? You will need to reconfigure the API token.')) {
+        apiToken = '';
+        projectId = '';
+        toolsTableId = '';
+        locationsTableId = '';
+        localStorage.clear();
+        closeModal();
+        showMessage('info', 'Settings cleared.');
+        showApiTokenPrompt();
+    }
+}
+
+// Discover projects and tables
+async function discoverTables() {
+    try {
+        // Get all projects
+        const projectsResponse = await apiCall('/db/meta/projects');
+        if (!projectsResponse || projectsResponse.length === 0) {
+            showMessage('error', 'No projects found. Please create a project in NocoDB first.');
+            return;
+        }
+
+        // Find or use the first project
+        const project = projectsResponse.find(p => p.title && p.title.toLowerCase().includes('tool')) || projectsResponse[0];
+        projectId = project.id;
+        localStorage.setItem('nocodb_project_id', projectId);
+
+        // Get tables for this project
+        const tablesResponse = await apiCall(`/db/meta/projects/${projectId}/tables`);
+        if (!tablesResponse) {
+            showMessage('error', 'Could not load tables. Please check your API token.');
+            return;
+        }
+
+        // Find Tools and Locations tables
+        const toolsTable = tablesResponse.find(t => t.table_name && t.table_name.toLowerCase() === 'tools');
+        const locationsTable = tablesResponse.find(t => t.table_name && t.table_name.toLowerCase() === 'locations');
+
+        if (toolsTable) {
+            toolsTableId = toolsTable.id;
+            localStorage.setItem('nocodb_tools_table_id', toolsTableId);
+            
+            // Get column mappings for Tools table
+            const columnsResponse = await apiCall(`/db/meta/tables/${toolsTableId}/columns`);
+            if (columnsResponse) {
+                columnsResponse.forEach(col => {
+                    if (col.column_name) {
+                        columnMap[col.column_name] = col.id;
+                    }
+                });
+            }
+        }
+
+        if (locationsTable) {
+            locationsTableId = locationsTable.id;
+            localStorage.setItem('nocodb_locations_table_id', locationsTableId);
+        }
+
+        if (!toolsTable) {
+            showMessage('error', 'Tools table not found. Please create a "Tools" table in NocoDB.');
+        }
+    } catch (error) {
+        console.error('Discovery error:', error);
+        showMessage('error', 'Could not connect to NocoDB. Please check your API token and try again.');
+    }
+}
+
+// Generic API call function
+async function apiCall(endpoint, options = {}) {
+    const url = `${API_BASE}${endpoint}`;
+    const defaultOptions = {
+        headers: {
+            'xc-token': apiToken,
+            'Content-Type': 'application/json'
+        }
+    };
+
+    const config = {
+        ...defaultOptions,
+        ...options,
+        headers: {
+            ...defaultOptions.headers,
+            ...(options.headers || {})
+        }
+    };
+
+    try {
+        const response = await fetch(url, config);
+        
+        if (response.status === 401) {
+            // Token invalid, clear it
+            apiToken = '';
+            localStorage.removeItem('nocodb_api_token');
+            showApiTokenPrompt();
+            return null;
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API error: ${response.status} - ${errorText}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('API call error:', error);
+        throw error;
+    }
+}
+
+// Main action functions
+function findTool() {
+    showModal(`
+        <h2 style="font-size: 36px; margin-bottom: 30px;">Find a Tool</h2>
+        <div class="form-group">
+            <label for="search-term">Search for a tool:</label>
+            <input type="text" id="search-term" placeholder="Enter tool name..." style="font-size: 28px; padding: 20px;" onkeyup="if(event.key==='Enter') performSearch()">
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-primary" onclick="performSearch()">Search</button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+        <div id="search-results" class="search-results"></div>
+    `);
+}
+
+function addTool() {
+    loadLocations().then(locations => {
+        const locationOptions = locations.map(loc => 
+            `<option value="${loc.Id}">${loc['Location Name'] || 'Unknown'}</option>`
+        ).join('');
+        
+        showModal(`
+            <h2 style="font-size: 36px; margin-bottom: 30px;">Add a Tool</h2>
+            <form id="add-tool-form" onsubmit="saveNewTool(event)">
+                <div class="form-group">
+                    <label for="tool-name">Tool Name *</label>
+                    <input type="text" id="tool-name" required style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-category">Category *</label>
+                    <select id="tool-category" required style="font-size: 24px; padding: 15px;">
+                        <option value="">Select a category...</option>
+                        <option value="Hand Tool">Hand Tool</option>
+                        <option value="Power Tool">Power Tool</option>
+                        <option value="Measuring">Measuring</option>
+                        <option value="Fasteners">Fasteners</option>
+                        <option value="Outdoor">Outdoor</option>
+                        <option value="Electrical">Electrical</option>
+                        <option value="Plumbing">Plumbing</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="tool-subcategory">Sub Category</label>
+                    <input type="text" id="tool-subcategory" placeholder="e.g., wrench, hammer" style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-brand">Brand</label>
+                    <input type="text" id="tool-brand" style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-size">Size / Specs</label>
+                    <input type="text" id="tool-size" placeholder="e.g., 1/2 inch, 10mm" style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-condition">Condition *</label>
+                    <select id="tool-condition" required style="font-size: 24px; padding: 15px;">
+                        <option value="">Select condition...</option>
+                        <option value="New">New</option>
+                        <option value="Good">Good</option>
+                        <option value="Worn">Worn</option>
+                        <option value="Needs Repair">Needs Repair</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="tool-location">Home Location</label>
+                    <select id="tool-location" style="font-size: 24px; padding: 15px;">
+                        <option value="">None</option>
+                        ${locationOptions}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Tool</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                </div>
+            </form>
+        `);
+    }).catch(() => {
+        // Show form without locations if loading fails
+        showModal(`
+            <h2 style="font-size: 36px; margin-bottom: 30px;">Add a Tool</h2>
+            <form id="add-tool-form" onsubmit="saveNewTool(event)">
+                <div class="form-group">
+                    <label for="tool-name">Tool Name *</label>
+                    <input type="text" id="tool-name" required style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-category">Category *</label>
+                    <select id="tool-category" required style="font-size: 24px; padding: 15px;">
+                        <option value="">Select a category...</option>
+                        <option value="Hand Tool">Hand Tool</option>
+                        <option value="Power Tool">Power Tool</option>
+                        <option value="Measuring">Measuring</option>
+                        <option value="Fasteners">Fasteners</option>
+                        <option value="Outdoor">Outdoor</option>
+                        <option value="Electrical">Electrical</option>
+                        <option value="Plumbing">Plumbing</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="tool-subcategory">Sub Category</label>
+                    <input type="text" id="tool-subcategory" placeholder="e.g., wrench, hammer" style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-brand">Brand</label>
+                    <input type="text" id="tool-brand" style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-size">Size / Specs</label>
+                    <input type="text" id="tool-size" placeholder="e.g., 1/2 inch, 10mm" style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-condition">Condition *</label>
+                    <select id="tool-condition" required style="font-size: 24px; padding: 15px;">
+                        <option value="">Select condition...</option>
+                        <option value="New">New</option>
+                        <option value="Good">Good</option>
+                        <option value="Worn">Worn</option>
+                        <option value="Needs Repair">Needs Repair</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Tool</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                </div>
+            </form>
+        `);
+    });
+}
+
+function repairTool() {
+    showModal(`
+        <h2 style="font-size: 36px; margin-bottom: 30px;">Repair a Tool</h2>
+        <div id="repair-message" class="message message-info">
+            Loading tools that need repair...
+        </div>
+        <div id="repair-tools-list" class="search-results"></div>
+    `);
+    loadToolsNeedingRepair();
+}
+
+function moveTool() {
+    loadLocations().then(locations => {
+        const locationOptions = locations.map(loc => 
+            `<option value="${loc.Id}">${loc['Location Name'] || 'Unknown'}</option>`
+        ).join('');
+        
+        showModal(`
+            <h2 style="font-size: 36px; margin-bottom: 30px;">Move a Tool</h2>
+            <div class="form-group">
+                <label for="move-search">Search for tool to move:</label>
+                <input type="text" id="move-search" placeholder="Enter tool name..." style="font-size: 28px; padding: 20px;" onkeyup="searchToolsForMove(event)">
+            </div>
+            <div id="move-tools-list" class="search-results"></div>
+            <div id="move-location-select" style="display: none; margin-top: 30px;">
+                <div class="form-group">
+                    <label for="new-location">New Location:</label>
+                    <select id="new-location" style="font-size: 24px; padding: 15px;">
+                        <option value="">None</option>
+                        ${locationOptions}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" onclick="saveToolMove()">Save Location</button>
+                    <button class="btn btn-secondary" onclick="cancelToolMove()">Cancel</button>
+                </div>
+            </div>
+        `);
+    }).catch(() => {
+        showModal(`
+            <h2 style="font-size: 36px; margin-bottom: 30px;">Move a Tool</h2>
+            <div class="form-group">
+                <label for="move-search">Search for tool to move:</label>
+                <input type="text" id="move-search" placeholder="Enter tool name..." style="font-size: 28px; padding: 20px;" onkeyup="searchToolsForMove(event)">
+            </div>
+            <div id="move-tools-list" class="search-results"></div>
+        `);
+    });
+}
+
+function inventoryOverview() {
+    showModal(`
+        <h2 style="font-size: 36px; margin-bottom: 30px;">Inventory Overview</h2>
+        <div id="overview-content" class="message message-info">
+            Loading inventory statistics...
+        </div>
+    `);
+    loadInventoryOverview();
+}
+
+// Modal functions
+function showModal(content) {
+    document.getElementById('modal-body').innerHTML = content;
+    document.getElementById('modal').classList.remove('hidden');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.add('hidden');
+    document.getElementById('modal-body').innerHTML = '';
+    selectedToolForMove = null;
+}
+
+// Search functionality
+async function performSearch() {
+    const searchTerm = document.getElementById('search-term').value.trim();
+    const resultsDiv = document.getElementById('search-results');
+    
+    if (!searchTerm) {
+        resultsDiv.innerHTML = '<div class="message message-error">Please enter a search term.</div>';
+        return;
+    }
+    
+    if (!toolsTableId) {
+        resultsDiv.innerHTML = '<div class="message message-error">Tools table not configured. Please set up your NocoDB tables first.</div>';
+        return;
+    }
+    
+    resultsDiv.innerHTML = '<div class="message message-info">Searching...</div>';
+    
+    try {
+        // Search tools by name
+        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
+        
+        if (!response || !response.list) {
+            resultsDiv.innerHTML = '<div class="message message-info">No tools found.</div>';
+            return;
+        }
+        
+        const tools = response.list;
+        if (tools.length === 0) {
+            resultsDiv.innerHTML = '<div class="message message-info">No tools found matching your search.</div>';
+            return;
+        }
+        
+        let html = `<div style="font-size: 24px; margin-bottom: 20px; font-weight: bold;">Found ${tools.length} tool(s):</div>`;
+        tools.forEach(tool => {
+            html += formatToolItem(tool);
+        });
+        resultsDiv.innerHTML = html;
+    } catch (error) {
+        resultsDiv.innerHTML = `<div class="message message-error">Error searching: ${error.message}</div>`;
+    }
+}
+
+// Save new tool
+async function saveNewTool(event) {
+    event.preventDefault();
+    
+    if (!toolsTableId) {
+        alert('Tools table not configured. Please set up your NocoDB tables first.');
+        return;
+    }
+    
+    const toolData = {
+        'Tool Name': document.getElementById('tool-name').value,
+        'Category': document.getElementById('tool-category').value,
+        'Sub Category': document.getElementById('tool-subcategory').value || null,
+        'Brand': document.getElementById('tool-brand').value || null,
+        'Size / Specs': document.getElementById('tool-size').value || null,
+        'Condition': document.getElementById('tool-condition').value,
+        'Home Location': document.getElementById('tool-location')?.value || null
+    };
+    
+    try {
+        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}`, {
+            method: 'POST',
+            body: JSON.stringify(toolData)
+        });
+        
+        if (response) {
+            showMessage('info', 'Tool saved successfully!');
+            closeModal();
+        }
+    } catch (error) {
+        alert(`Error saving tool: ${error.message}`);
+    }
+}
+
+// Load tools needing repair
+async function loadToolsNeedingRepair() {
+    const listDiv = document.getElementById('repair-tools-list');
+    const messageDiv = document.getElementById('repair-message');
+    
+    if (!toolsTableId) {
+        messageDiv.innerHTML = '<div class="message message-error">Tools table not configured.</div>';
+        return;
+    }
+    
+    try {
+        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?where=(Condition,eq,Needs Repair)`);
+        
+        if (!response || !response.list || response.list.length === 0) {
+            messageDiv.innerHTML = '<div class="message message-info">No tools need repair. Great job!</div>';
+            listDiv.innerHTML = '';
+            return;
+        }
+        
+        messageDiv.innerHTML = `<div class="message message-info">Found ${response.list.length} tool(s) needing repair:</div>`;
+        
+        let html = '';
+        response.list.forEach(tool => {
+            html += `
+                <div class="tool-item">
+                    ${formatToolItem(tool)}
+                    <div style="margin-top: 15px;">
+                        <button class="btn btn-primary" onclick="markToolRepaired('${tool.Id}')" style="font-size: 20px; padding: 15px 25px;">
+                            Mark as Repaired
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        listDiv.innerHTML = html;
+    } catch (error) {
+        messageDiv.innerHTML = `<div class="message message-error">Error loading tools: ${error.message}</div>`;
+    }
+}
+
+// Mark tool as repaired
+async function markToolRepaired(toolId) {
+    if (!confirm('Mark this tool as repaired? You can change the condition to "Good" or "Worn".')) {
+        return;
+    }
+    
+    const newCondition = prompt('Enter new condition:\n1. New\n2. Good\n3. Worn\n\nEnter the number or condition name:');
+    if (!newCondition) return;
+    
+    let condition = newCondition.trim();
+    if (condition === '1') condition = 'New';
+    if (condition === '2') condition = 'Good';
+    if (condition === '3') condition = 'Worn';
+    
+    try {
+        await apiCall(`/db/data/v1/${projectId}/${toolsTableId}/${toolId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ 'Condition': condition })
+        });
+        
+        showMessage('info', 'Tool condition updated!');
+        loadToolsNeedingRepair(); // Refresh the list
+    } catch (error) {
+        alert(`Error updating tool: ${error.message}`);
+    }
+}
+
+// Search tools for moving
+let selectedToolForMove = null;
+
+async function searchToolsForMove(event) {
+    if (event.key !== 'Enter') return;
+    
+    const searchTerm = event.target.value.trim();
+    const listDiv = document.getElementById('move-tools-list');
+    
+    if (!searchTerm) {
+        listDiv.innerHTML = '';
+        return;
+    }
+    
+    if (!toolsTableId) {
+        listDiv.innerHTML = '<div class="message message-error">Tools table not configured.</div>';
+        return;
+    }
+    
+    listDiv.innerHTML = '<div class="message message-info">Searching...</div>';
+    
+    try {
+        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
+        
+        if (!response || !response.list || response.list.length === 0) {
+            listDiv.innerHTML = '<div class="message message-info">No tools found.</div>';
+            return;
+        }
+        
+        let html = '';
+        response.list.forEach(tool => {
+            html += `
+                <div class="tool-item" style="cursor: pointer;" onclick="selectToolForMove('${tool.Id}', '${(tool['Tool Name'] || '').replace(/'/g, "\\'")}')">
+                    ${formatToolItem(tool)}
+                    <div style="margin-top: 10px; color: #3498db; font-weight: bold;">Click to select this tool</div>
+                </div>
+            `;
+        });
+        listDiv.innerHTML = html;
+    } catch (error) {
+        listDiv.innerHTML = `<div class="message message-error">Error searching: ${error.message}</div>`;
+    }
+}
+
+function selectToolForMove(toolId, toolName) {
+    selectedToolForMove = toolId;
+    const locationSelect = document.getElementById('move-location-select');
+    if (locationSelect) {
+        locationSelect.style.display = 'block';
+        locationSelect.scrollIntoView({ behavior: 'smooth' });
+    }
+    showMessage('info', `Selected: ${toolName}`);
+}
+
+async function saveToolMove() {
+    if (!selectedToolForMove) {
+        alert('Please select a tool first.');
+        return;
+    }
+    
+    const newLocationId = document.getElementById('new-location')?.value || null;
+    
+    try {
+        await apiCall(`/db/data/v1/${projectId}/${toolsTableId}/${selectedToolForMove}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ 'Home Location': newLocationId })
+        });
+        
+        showMessage('info', 'Tool location updated!');
+        closeModal();
+    } catch (error) {
+        alert(`Error updating location: ${error.message}`);
+    }
+}
+
+function cancelToolMove() {
+    selectedToolForMove = null;
+    const locationSelect = document.getElementById('move-location-select');
+    if (locationSelect) {
+        locationSelect.style.display = 'none';
+    }
+}
+
+// Load inventory overview
+async function loadInventoryOverview() {
+    const contentDiv = document.getElementById('overview-content');
+    
+    if (!toolsTableId) {
+        contentDiv.innerHTML = '<div class="message message-error">Tools table not configured.</div>';
+        return;
+    }
+    
+    try {
+        // Get all tools
+        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}`);
+        
+        if (!response || !response.list) {
+            contentDiv.innerHTML = '<div class="message message-info">No tools in inventory.</div>';
+            return;
+        }
+        
+        const tools = response.list;
+        const total = tools.length;
+        
+        // Count by category
+        const byCategory = {};
+        const byCondition = {};
+        let loanedOut = 0;
+        let needsRepair = 0;
+        
+        tools.forEach(tool => {
+            const category = getFieldValue(tool, 'Category') || 'Unknown';
+            const condition = getFieldValue(tool, 'Condition') || 'Unknown';
+            
+            byCategory[category] = (byCategory[category] || 0) + 1;
+            byCondition[condition] = (byCondition[condition] || 0) + 1;
+            
+            if (getFieldValue(tool, 'Loaned Out')) loanedOut++;
+            if (condition === 'Needs Repair') needsRepair++;
+        });
+        
+        let html = `
+            <div style="font-size: 28px; margin-bottom: 30px;">
+                <strong>Total Tools: ${total}</strong>
+            </div>
+            <div style="font-size: 24px; margin-bottom: 20px;">
+                <strong>Loaned Out: ${loanedOut}</strong>
+            </div>
+            <div style="font-size: 24px; margin-bottom: 20px;">
+                <strong>Need Repair: ${needsRepair}</strong>
+            </div>
+            <div style="margin-top: 30px;">
+                <h3 style="font-size: 28px; margin-bottom: 15px;">By Category:</h3>
+        `;
+        
+        Object.entries(byCategory).sort((a, b) => b[1] - a[1]).forEach(([cat, count]) => {
+            html += `<div style="font-size: 24px; margin-bottom: 10px;">${cat}: ${count}</div>`;
+        });
+        
+        html += `
+            </div>
+            <div style="margin-top: 30px;">
+                <h3 style="font-size: 28px; margin-bottom: 15px;">By Condition:</h3>
+        `;
+        
+        Object.entries(byCondition).forEach(([cond, count]) => {
+            html += `<div style="font-size: 24px; margin-bottom: 10px;">${cond}: ${count}</div>`;
+        });
+        
+        html += '</div>';
+        contentDiv.innerHTML = html;
+    } catch (error) {
+        contentDiv.innerHTML = `<div class="message message-error">Error loading overview: ${error.message}</div>`;
+    }
+}
+
+// Load locations
+async function loadLocations() {
+    if (!locationsTableId) {
+        return [];
+    }
+    
+    try {
+        const response = await apiCall(`/db/data/v1/${projectId}/${locationsTableId}`);
+        return response?.list || [];
+    } catch (error) {
+        console.error('Error loading locations:', error);
+        return [];
+    }
+}
+
+// Get field value from tool object (handles different field name formats)
+function getFieldValue(tool, fieldName) {
+    // Try exact match first
+    if (tool[fieldName] !== undefined) return tool[fieldName];
+    
+    // Try with different case variations
+    const lowerField = fieldName.toLowerCase();
+    for (const key in tool) {
+        if (key.toLowerCase() === lowerField) {
+            return tool[key];
+        }
+    }
+    
+    // Try column ID if we have it
+    if (columnMap[fieldName] && tool[columnMap[fieldName]] !== undefined) {
+        return tool[columnMap[fieldName]];
+    }
+    
+    return null;
+}
+
+// Format tool item for display
+function formatToolItem(tool) {
+    const name = getFieldValue(tool, 'Tool Name') || 'Unnamed Tool';
+    const category = getFieldValue(tool, 'Category') || 'Unknown';
+    const condition = getFieldValue(tool, 'Condition') || 'Unknown';
+    const brand = getFieldValue(tool, 'Brand') || '';
+    const size = getFieldValue(tool, 'Size / Specs') || '';
+    const location = getFieldValue(tool, 'Home Location') || '';
+    const loanedOut = getFieldValue(tool, 'Loaned Out') || false;
+    
+    return `
+        <h3>${name}</h3>
+        <p><strong>Category:</strong> ${category}</p>
+        ${condition ? `<p><strong>Condition:</strong> ${condition}</p>` : ''}
+        ${brand ? `<p><strong>Brand:</strong> ${brand}</p>` : ''}
+        ${size ? `<p><strong>Size:</strong> ${size}</p>` : ''}
+        ${location ? `<p><strong>Location:</strong> ${location}</p>` : ''}
+        <p><strong>Loaned Out:</strong> ${loanedOut ? 'Yes' : 'No'}</p>
+    `;
+}
+
+// Helper function to show messages
+function showMessage(type, text) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message message-${type}`;
+    messageDiv.textContent = text;
+    messageDiv.style.position = 'fixed';
+    messageDiv.style.top = '20px';
+    messageDiv.style.left = '50%';
+    messageDiv.style.transform = 'translateX(-50%)';
+    messageDiv.style.zIndex = '10000';
+    messageDiv.style.minWidth = '300px';
+    messageDiv.style.maxWidth = '90%';
+    document.body.appendChild(messageDiv);
+    
+    setTimeout(() => {
+        messageDiv.remove();
+    }, 5000);
+}
