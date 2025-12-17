@@ -1,8 +1,8 @@
 // Configuration
-const API_BASE = '/api/v1'; // Proxied through Caddy to NocoDB
+const API_BASE = "/api/v1/db"; // Proxied through Caddy to NocoDB // Proxied through Caddy to NocoDB
 
 // Storage for configuration
-let apiToken = localStorage.getItem('nocodb_api_token') || '';
+let apiToken = "7511d065bc905dcebd199a2cfeaf472339cfcb4b15e29957";
 let projectId = localStorage.getItem('nocodb_project_id') || '';
 let toolsTableId = localStorage.getItem('nocodb_tools_table_id') || '';
 let locationsTableId = localStorage.getItem('nocodb_locations_table_id') || '';
@@ -16,21 +16,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function initializeApp() {
     // Check if we need to configure API token
     if (!apiToken) {
-        showApiTokenPrompt();
-    } else {
+        /* token prompt disabled */
+} else {
         await discoverTables();
     }
 }
 
 // Show API token configuration prompt
 function showApiTokenPrompt() {
-    const token = prompt('Enter your NocoDB API Token:\n\n(You can find this in NocoDB: Settings > Token Management)\n\nLeave empty to skip for now.');
-    if (token) {
-        apiToken = token.trim();
-        localStorage.setItem('nocodb_api_token', apiToken);
-        discoverTables();
-    }
+  return;
 }
+
 
 // Show settings
 function showSettings() {
@@ -86,49 +82,48 @@ function clearSettings() {
         localStorage.clear();
         closeModal();
         showMessage('info', 'Settings cleared.');
-        showApiTokenPrompt();
-    }
+        /* token prompt disabled */
+}
 }
 
 // Discover projects and tables
 async function discoverTables() {
     try {
-        // Get all projects
-        const projectsResponse = await apiCall('/db/meta/projects');
-        if (!projectsResponse || projectsResponse.length === 0) {
-            showMessage('error', 'No projects found. Please create a project in NocoDB first.');
+        // v1: get projects (bases)
+        const basesResp = await apiCall('/meta/projects');
+        const bases = (basesResp && Array.isArray(basesResp.list)) ? basesResp.list : basesResp;
+
+        if (!bases || !Array.isArray(bases) || bases.length === 0) {
+            showMessage('error', 'No bases found in NocoDB. Create a base first.');
             return;
         }
 
-        // Find or use the first project
-        const project = projectsResponse.find(p => p.title && p.title.toLowerCase().includes('tool')) || projectsResponse[0];
-        projectId = project.id;
+        // Pick the Tool Inventory base if present, otherwise first
+        const base = bases.find(b => (b.title || '').toLowerCase().includes('tool')) || bases[0];
+        projectId = base.id; // keep existing variable name to avoid refactors
         localStorage.setItem('nocodb_project_id', projectId);
 
-        // Get tables for this project
-        const tablesResponse = await apiCall(`/db/meta/projects/${projectId}/tables`);
-        if (!tablesResponse) {
-            showMessage('error', 'Could not load tables. Please check your API token.');
+        // v1: get tables for this project
+        const tablesResp = await apiCall(`/meta/projects/${projectId}/tables`);
+        const tables = (tablesResp && Array.isArray(tablesResp.list)) ? tablesResp.list : tablesResp;
+
+        if (!tables || !Array.isArray(tables) || tables.length === 0) {
+            showMessage('error', 'No tables found in this base. Create "Tools" and "Locations" tables in NocoDB.');
             return;
         }
 
-        // Find Tools and Locations tables
-        const toolsTable = tablesResponse.find(t => t.table_name && t.table_name.toLowerCase() === 'tools');
-        const locationsTable = tablesResponse.find(t => t.table_name && t.table_name.toLowerCase() === 'locations');
+        // Match by title first (recommended), fallback to table_name
+        const toolsTable = tables.find(t => (t.title || '').toLowerCase() === 'tools')
+            || tables.find(t => (t.table_name || '').toLowerCase().endswith('tools'));
+        const locationsTable = tables.find(t => (t.title || '').toLowerCase() === 'locations')
+            || tables.find(t => (t.table_name || '').toLowerCase().endswith('locations'));
 
         if (toolsTable) {
             toolsTableId = toolsTable.id;
             localStorage.setItem('nocodb_tools_table_id', toolsTableId);
-            
-            // Get column mappings for Tools table
-            const columnsResponse = await apiCall(`/db/meta/tables/${toolsTableId}/columns`);
-            if (columnsResponse) {
-                columnsResponse.forEach(col => {
-                    if (col.column_name) {
-                        columnMap[col.column_name] = col.id;
-                    }
-                });
-            }
+
+            // Note: Column mapping disabled - not needed for basic functionality
+            // Tables in v1 API include column info inline
         }
 
         if (locationsTable) {
@@ -171,8 +166,8 @@ async function apiCall(endpoint, options = {}) {
             // Token invalid, clear it
             apiToken = '';
             localStorage.removeItem('nocodb_api_token');
-            showApiTokenPrompt();
-            return null;
+            /* token prompt disabled */
+return null;
         }
 
         if (!response.ok) {
@@ -410,7 +405,7 @@ async function performSearch() {
     
     try {
         // Search tools by name
-        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
+        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
         
         if (!response || !response.list) {
             resultsDiv.innerHTML = '<div class="message message-info">No tools found.</div>';
@@ -453,7 +448,7 @@ async function saveNewTool(event) {
     };
     
     try {
-        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}`, {
+        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}`, {
             method: 'POST',
             body: JSON.stringify(toolData)
         });
@@ -478,7 +473,7 @@ async function loadToolsNeedingRepair() {
     }
     
     try {
-        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?where=(Condition,eq,Needs Repair)`);
+        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}?where=(Condition,eq,Needs Repair)`);
         
         if (!response || !response.list || response.list.length === 0) {
             messageDiv.innerHTML = '<div class="message message-info">No tools need repair. Great job!</div>';
@@ -522,7 +517,7 @@ async function markToolRepaired(toolId) {
     if (condition === '3') condition = 'Worn';
     
     try {
-        await apiCall(`/db/data/v1/${projectId}/${toolsTableId}/${toolId}`, {
+        await apiCall(`/data/v1/${projectId}/${toolsTableId}/${toolId}`, {
             method: 'PATCH',
             body: JSON.stringify({ 'Condition': condition })
         });
@@ -556,7 +551,7 @@ async function searchToolsForMove(event) {
     listDiv.innerHTML = '<div class="message message-info">Searching...</div>';
     
     try {
-        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
+        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
         
         if (!response || !response.list || response.list.length === 0) {
             listDiv.innerHTML = '<div class="message message-info">No tools found.</div>';
@@ -597,7 +592,7 @@ async function saveToolMove() {
     const newLocationId = document.getElementById('new-location')?.value || null;
     
     try {
-        await apiCall(`/db/data/v1/${projectId}/${toolsTableId}/${selectedToolForMove}`, {
+        await apiCall(`/data/v1/${projectId}/${toolsTableId}/${selectedToolForMove}`, {
             method: 'PATCH',
             body: JSON.stringify({ 'Home Location': newLocationId })
         });
@@ -628,7 +623,7 @@ async function loadInventoryOverview() {
     
     try {
         // Get all tools
-        const response = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}`);
+        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}`);
         
         if (!response || !response.list) {
             contentDiv.innerHTML = '<div class="message message-info">No tools in inventory.</div>';
@@ -697,7 +692,7 @@ async function loadLocations() {
     }
     
     try {
-        const response = await apiCall(`/db/data/v1/${projectId}/${locationsTableId}`);
+        const response = await apiCall(`/data/v1/${projectId}/${locationsTableId}`);
         return response?.list || [];
     } catch (error) {
         console.error('Error loading locations:', error);

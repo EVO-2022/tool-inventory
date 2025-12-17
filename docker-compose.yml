@@ -3,8 +3,8 @@ services:
   nocodb:
     image: nocodb/nocodb:latest
     container_name: nocodb_dev
-    environment:
-      - NC_DISABLE_TELE=true
+    ports:
+      - "8090:8080"
     volumes:
       - ./data:/usr/app/data
     networks:
@@ -16,6 +16,7 @@ services:
     container_name: tool-inventory-frontend
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - tool-inventory-network
     restart: unless-stopped

@@ -6,11 +6,12 @@
             header_up X-Real-IP {remote_host}
             header_up X-Forwarded-For {remote_host}
             header_up X-Forwarded-Proto {scheme}
+            header_up xc-token 7511d065bc905dcebd199a2cfeaf472339cfcb4b15e29957
         }
     }
     
     # Route NocoDB UI for setup (access at /nocodb)
-    handle /nocodb/* {
+    handle_path /nocodb* {
         reverse_proxy nocodb:8080 {
             header_up Host {host}
             header_up X-Real-IP {remote_host}
