@@ -176,8 +176,8 @@ async function apiCall(endpoint, options = {}) {
 // Discover projects and tables
 async function discoverTables() {
   try {
-    const basesResp = await apiCall('/db/meta/projects'); // v1 naming
-    const projectsResponse = basesResp?.list || basesResp; // tolerate both shapes
+    const basesResp = await apiCall('/db/meta/projects');
+    const projectsResponse = basesResp?.list || basesResp;
     if (!projectsResponse || projectsResponse.length === 0) return;
 
     const project =
@@ -187,7 +187,7 @@ async function discoverTables() {
     projectId = project.id;
     localStorage.setItem('nocodb_project_id', projectId);
 
-    const tablesRespWrap = await apiCall(`/meta/projects/${projectId}/tables`);
+    const tablesRespWrap = await apiCall(`/db/meta/projects/${projectId}/tables`);
     const tablesResponse = tablesRespWrap?.list || tablesRespWrap;
     if (!tablesResponse) return;
 
@@ -384,27 +384,85 @@ async function saveTool() {
   }
 }
 
-// Expose addTool to global (if your HTML uses onclick="addTool()")
+// Settings function
+function showSettings() {
+  showModal(`
+    <h2>Settings</h2>
+    <div class="form-group">
+      <label>API Token:</label>
+      <input type="text" id="settings-token" value="${apiToken ? '••••••••' : ''}" placeholder="Enter API token..." style="font-size: 24px; padding: 15px; width:100%;" />
+      <p style="font-size: 18px; color: #7f8c8d; margin-top: 10px;">Find this in NocoDB: Settings > Token Management</p>
+    </div>
+    <div class="form-group">
+      <label>Current Configuration:</label>
+      <div style="font-size: 18px; padding: 15px; background-color: #ecf0f1; border-radius: 8px;">
+        <p><strong>Project ID:</strong> ${projectId || 'Not set'}</p>
+        <p><strong>Tools Table ID:</strong> ${toolsTableId || 'Not set'}</p>
+        <p><strong>Locations Table ID:</strong> ${locationsTableId || 'Not set'}</p>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="saveSettings()">Save & Refresh</button>
+      <button class="btn btn-secondary" onclick="clearSettings()">Clear All Settings</button>
+      <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+    </div>
+  `);
+}
+
+function saveSettings() {
+  const newToken = document.getElementById('settings-token')?.value?.trim();
+  if (newToken && newToken !== '••••••••') {
+    apiToken = newToken;
+    localStorage.setItem('nocodb_api_token', apiToken);
+  }
+  
+  projectId = '';
+  toolsTableId = '';
+  locationsTableId = '';
+  localStorage.removeItem('nocodb_project_id');
+  localStorage.removeItem('nocodb_tools_table_id');
+  localStorage.removeItem('nocodb_locations_table_id');
+  
+  closeModal();
+  showModal('<h2>Settings Saved</h2><p>Rediscovering tables...</p>');
+  discoverTables().then(() => {
+    setTimeout(closeModal, 1500);
+  });
+}
+
+function clearSettings() {
+  if (!confirm('Clear all settings? You will need to reconfigure the API token.')) return;
+  
+  apiToken = '';
+  projectId = '';
+  toolsTableId = '';
+  locationsTableId = '';
+  localStorage.clear();
+  closeModal();
+  showModal('<h2>Settings Cleared</h2><p>All settings have been cleared.</p>');
+  setTimeout(closeModal, 2000);
+}
+
+// Expose all functions to global scope for onclick handlers
 window.addTool = addTool;
 window.saveTool = saveTool;
 window.handleCategoryChange = handleCategoryChange;
 window.handleSubcategoryChange = handleSubcategoryChange;
 window.handleTypeChange = handleTypeChange;
 window.handleBrandChange = handleBrandChange;
-
-
-// Expose functions for inline onclick handlers
-window.__toolInventoryExports = true;
-if (typeof showSettings === 'function') window.showSettings = showSettings;
-if (typeof findTool === 'function') window.findTool = findTool;
-if (typeof repairTool === 'function') window.repairTool = repairTool;
-if (typeof inventoryOverview === 'function') window.inventoryOverview = inventoryOverview;
-if (typeof moveTool === 'function') window.moveTool = moveTool;
-if (typeof addTool === 'function') window.addTool = addTool;
-if (typeof closeModal === 'function') window.closeModal = closeModal;
-if (typeof clearSettings === 'function') window.clearSettings = clearSettings;
-if (typeof saveSettings === 'function') window.saveSettings = saveSettings;
-if (typeof performSearch === 'function') window.performSearch = performSearch;
+window.showSettings = showSettings;
+window.saveSettings = saveSettings;
+window.clearSettings = clearSettings;
+window.findTool = findTool;
+window.repairTool = repairTool;
+window.inventoryOverview = inventoryOverview;
+window.moveTool = moveTool;
+window.closeModal = closeModal;
+window.performSearch = performSearch;
+window.performMoveSearch = performMoveSearch;
+window.saveToolMove = saveToolMove;
+window.saveRepairStatus = saveRepairStatus;
+window.openToolDetails = openToolDetails;
 
 function closeModal() {
   // New modal system (overlay injected by showModal)
@@ -497,56 +555,247 @@ function openToolDetails(id) {
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
-function moveTool() {
+async function moveTool() {
+  if (!toolsTableId) {
+    showModal(`<h2>Move a Tool</h2><p style="color:#c0392b;">Tools table not configured.</p>`);
+    return;
+  }
+
   showModal(`
     <h2>Move a Tool</h2>
-    <p>Select a tool and choose a new location.</p>
-    <p>(Coming next)</p>
+    <div class="form-group">
+      <label>Search for tool to move</label>
+      <input type="text" id="move-search-term" placeholder="Brand, category, type..." style="font-size: 24px; padding: 14px; width:100%;" />
+      <p style="margin-top:10px; opacity:.75;">Press Enter to search.</p>
+    </div>
+    <div id="move-results" style="margin-top:16px;"></div>
   `);
+
+  const input = document.getElementById("move-search-term");
+  input.focus();
+  input.addEventListener("keydown", async (e) => {
+    if (e.key === "Enter") await performMoveSearch();
+  });
 }
 
-function repairTool() {
+async function performMoveSearch() {
+  const term = (document.getElementById("move-search-term")?.value || "").trim().toLowerCase();
+  const out = document.getElementById("move-results");
+  if (!out) return;
+
+  if (!term) {
+    out.innerHTML = `<p style="opacity:.8;">Type something to search.</p>`;
+    return;
+  }
+
+  try {
+    const resp = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?limit=500`);
+    const rows = resp?.list || resp?.data || resp || [];
+
+    const hits = rows.filter(r => {
+      const brand = (r["Brand"] || "").toLowerCase();
+      const cat = (r["Category"] || "").toLowerCase();
+      const sub = (r["Sub Category"] || "").toLowerCase();
+      const typ = (r["Type"] || "").toLowerCase();
+      return brand.includes(term) || cat.includes(term) || sub.includes(term) || typ.includes(term);
+    });
+
+    if (!hits.length) {
+      out.innerHTML = `<p>No matches.</p>`;
+      return;
+    }
+
+    // Load locations
+    let locations = [];
+    if (locationsTableId) {
+      try {
+        const locResp = await apiCall(`/db/data/v1/${projectId}/${locationsTableId}`);
+        locations = locResp?.list || locResp?.data || locResp || [];
+      } catch (e) {
+        console.error("Failed to load locations:", e);
+      }
+    }
+
+    const locOptions = locations.map(l => `<option value="${l.Id || l.id}">${escapeHtml(l["Location Name"] || "Unknown")}</option>`).join("");
+
+    out.innerHTML = hits.slice(0, 20).map(r => {
+      const label = [r["Brand"], r["Size / Specs"], r["Type"], r["Sub Category"]].filter(Boolean).join(" • ");
+      const id = r["Id"] || r["id"] || "";
+      return `
+        <div style="border:1px solid #ddd; padding:12px; margin:8px 0; border-radius:8px;">
+          <p><strong>${escapeHtml(label || 'Tool')}</strong></p>
+          <select id="move-loc-${id}" style="font-size:20px; padding:10px; width:100%; margin-top:8px;">
+            <option value="">Select new location...</option>
+            ${locOptions}
+          </select>
+          <button class="btn btn-primary" onclick="saveToolMove('${id}')" style="margin-top:8px; font-size:20px; padding:10px 20px;">Save Location</button>
+        </div>
+      `;
+    }).join("");
+
+    window.__moveSearchRows = rows;
+  } catch (e) {
+    console.error(e);
+    out.innerHTML = `<p style="color:#c0392b;">Search failed. Check console.</p>`;
+  }
+}
+
+async function saveToolMove(toolId) {
+  const select = document.getElementById(`move-loc-${toolId}`);
+  if (!select) return;
+
+  const newLocationId = select.value;
+  if (!newLocationId) {
+    alert("Please select a location.");
+    return;
+  }
+
+  try {
+    await apiCall(`/db/data/v1/${projectId}/${toolsTableId}/${toolId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ 'Home Location': newLocationId })
+    });
+    showModal(`<h2>Success</h2><p>Tool location updated!</p>`);
+    setTimeout(() => moveTool(), 1500);
+  } catch (e) {
+    console.error(e);
+    alert("Failed to update location.");
+  }
+}
+
+async function repairTool() {
+  if (!toolsTableId) {
+    showModal(`<h2>Repair a Tool</h2><p style="color:#c0392b;">Tools table not configured.</p>`);
+    return;
+  }
+
   showModal(`
     <h2>Repair a Tool</h2>
-    <p>Mark a tool as needing repair or log maintenance.</p>
-    <p>(Coming next)</p>
+    <div id="repair-content" style="margin-top:16px;">
+      <p>Loading tools that need repair...</p>
+    </div>
   `);
+
+  try {
+    const resp = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?limit=500`);
+    const rows = resp?.list || resp?.data || resp || [];
+    const needsRepair = rows.filter(r => (r["Condition"] || "").toLowerCase().includes("repair"));
+
+    const content = document.getElementById("repair-content");
+    if (!needsRepair.length) {
+      content.innerHTML = `<p style="color:#27ae60; font-size:20px;">✅ No tools need repair. Great job!</p>`;
+      return;
+    }
+
+    content.innerHTML = `
+      <p style="font-size:20px; margin-bottom:16px;"><strong>Found ${needsRepair.length} tool(s) needing repair:</strong></p>
+      ${needsRepair.map(r => {
+        const label = [r["Brand"], r["Size / Specs"], r["Type"], r["Sub Category"]].filter(Boolean).join(" • ");
+        const id = r["Id"] || r["id"] || "";
+        return `
+          <div style="border:1px solid #ddd; padding:12px; margin:8px 0; border-radius:8px;">
+            <p><strong>${escapeHtml(label || 'Tool')}</strong></p>
+            <select id="repair-condition-${id}" style="font-size:20px; padding:10px; width:100%; margin-top:8px;">
+              <option value="Good">Good</option>
+              <option value="Worn">Worn</option>
+              <option value="New">New</option>
+              <option value="Needs Repair" selected>Needs Repair</option>
+            </select>
+            <button class="btn btn-primary" onclick="saveRepairStatus('${id}')" style="margin-top:8px; font-size:20px; padding:10px 20px;">Update Condition</button>
+          </div>
+        `;
+      }).join("")}
+    `;
+  } catch (e) {
+    console.error(e);
+    const content = document.getElementById("repair-content");
+    if (content) content.innerHTML = `<p style="color:#c0392b;">Failed to load tools. Check console.</p>`;
+  }
 }
 
-function inventoryOverview() {
+async function saveRepairStatus(toolId) {
+  const select = document.getElementById(`repair-condition-${toolId}`);
+  if (!select) return;
+
+  const newCondition = select.value;
+  if (!newCondition) return;
+
+  try {
+    await apiCall(`/db/data/v1/${projectId}/${toolsTableId}/${toolId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ 'Condition': newCondition })
+    });
+    showModal(`<h2>Success</h2><p>Tool condition updated!</p>`);
+    setTimeout(() => repairTool(), 1500);
+  } catch (e) {
+    console.error(e);
+    alert("Failed to update condition.");
+  }
+}
+
+async function inventoryOverview() {
+  if (!toolsTableId) {
+    showModal(`<h2>Inventory Overview</h2><p style="color:#c0392b;">Tools table not configured.</p>`);
+    return;
+  }
+
   showModal(`
     <h2>Inventory Overview</h2>
-    <p>Summary view of all tools.</p>
-    <p>(Coming next)</p>
+    <div id="overview-content" style="margin-top:16px;">
+      <p>Loading statistics...</p>
+    </div>
   `);
+
+  try {
+    const resp = await apiCall(`/db/data/v1/${projectId}/${toolsTableId}?limit=1000`);
+    const rows = resp?.list || resp?.data || resp || [];
+
+    const total = rows.length;
+    const byCategory = {};
+    const byCondition = {};
+    let loanedOut = 0;
+    let needsRepair = 0;
+
+    rows.forEach(r => {
+      const cat = r["Category"] || "Unknown";
+      const cond = r["Condition"] || "Unknown";
+      byCategory[cat] = (byCategory[cat] || 0) + 1;
+      byCondition[cond] = (byCondition[cond] || 0) + 1;
+      if (r["Loaned Out"]) loanedOut++;
+      if ((cond || "").toLowerCase().includes("repair")) needsRepair++;
+    });
+
+    const content = document.getElementById("overview-content");
+    content.innerHTML = `
+      <div style="font-size:24px; margin-bottom:20px;">
+        <strong>Total Tools: ${total}</strong>
+      </div>
+      <div style="font-size:20px; margin-bottom:16px;">
+        <strong>Loaned Out: ${loanedOut}</strong><br>
+        <strong>Need Repair: ${needsRepair}</strong>
+      </div>
+      <div style="margin-top:24px;">
+        <h3 style="font-size:22px; margin-bottom:12px;">By Category:</h3>
+        ${Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, count]) => 
+          `<p style="font-size:18px; margin:4px 0;">${escapeHtml(cat)}: ${count}</p>`
+        ).join("")}
+      </div>
+      <div style="margin-top:24px;">
+        <h3 style="font-size:22px; margin-bottom:12px;">By Condition:</h3>
+        ${Object.entries(byCondition).map(([cond, count]) => 
+          `<p style="font-size:18px; margin:4px 0;">${escapeHtml(cond)}: ${count}</p>`
+        ).join("")}
+      </div>
+    `;
+  } catch (e) {
+    console.error(e);
+    const content = document.getElementById("overview-content");
+    if (content) content.innerHTML = `<p style="color:#c0392b;">Failed to load overview. Check console.</p>`;
+  }
 }
 
-// Safety: modal close handler (was missing)
+// Modal close handler
 function closeModal() {
   const overlay = document.getElementById('modal-overlay');
   if (overlay) overlay.style.display = 'none';
-}
-
-
-// ===== TEMP SAFE STUBS (restore buttons) =====
-function findTool() {
-  showModal('<h2>Find a Tool</h2><p>Search is coming next.</p>');
-}
-
-function repairTool() {
-  showModal('<h2>Repair a Tool</h2><p>Repair tracking coming later.</p>');
-}
-
-function moveTool() {
-  showModal('<h2>Move a Tool</h2><p>Move tool flow coming later.</p>');
-}
-
-function inventoryOverview() {
-  showModal('<h2>Inventory Overview</h2><p>Overview coming later.</p>');
-}
-
-// safety: close modal
-function closeModal() {
-  const overlay = document.getElementById('modal-overlay');
-  if (overlay) overlay.remove();
 }
