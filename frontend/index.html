@@ -1,57 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tool Inventory</title>
-    <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tool Inventory</title>
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Tool Inventory</h1>
-            <button class="settings-button" onclick="showSettings()" title="Settings">⚙️</button>
-        </header>
-        
-        <main>
-            <div class="button-grid">
-                <button class="action-button" onclick="findTool()">
-                    <span class="button-icon">🔍</span>
-                    <span class="button-text">Find a Tool</span>
-                </button>
-                
-                <button class="action-button" onclick="addTool()">
-                    <span class="button-icon">➕</span>
-                    <span class="button-text">Add a Tool</span>
-                </button>
-                
-                <button class="action-button" onclick="repairTool()">
-                    <span class="button-icon">🔧</span>
-                    <span class="button-text">Repair a Tool</span>
-                </button>
-                
-                <button class="action-button" onclick="moveTool()">
-                    <span class="button-icon">📦</span>
-                    <span class="button-text">Move a Tool</span>
-                </button>
-                
-                <button class="action-button" onclick="inventoryOverview()">
-                    <span class="button-icon">📋</span>
-                    <span class="button-text">Inventory Overview</span>
-                </button>
-            </div>
-        </main>
-    </div>
-    
-    <!-- Modal for displaying content -->
-    <div id="modal" class="modal hidden">
-        <div class="modal-content">
-            <button class="close-button" onclick="closeModal()">✕ Close</button>
-            <div id="modal-body"></div>
-        </div>
-    </div>
-    
-    <script src="js/app.js?v=20251217-1"></script>
+  <div class="container">
+    <header>
+      <h1>Tool Inventory</h1>
+      <button class="settings-button" onclick="showSettings()" title="Settings">⚙️</button>
+    </header>
+
+    <main>
+      <div class="button-grid">
+        <button class="action-button" onclick="findTool()">
+          <span class="button-icon">🔍</span>
+          <span class="button-text">Find a Tool</span>
+        </button>
+
+        <button class="action-button" onclick="addTool()">
+          <span class="button-icon">➕</span>
+          <span class="button-text">Add a Tool</span>
+        </button>
+
+        <button class="action-button" onclick="repairTool()">
+          <span class="button-icon">🔧</span>
+          <span class="button-text">Repair a Tool</span>
+        </button>
+
+        <button class="action-button" onclick="moveTool()">
+          <span class="button-icon">📦</span>
+          <span class="button-text">Move a Tool</span>
+        </button>
+
+        <button class="action-button" onclick="inventoryOverview()">
+          <span class="button-icon">📋</span>
+          <span class="button-text">Inventory Overview</span>
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/app.js?v=20251217-2"></script>
 </body>
 </html>
-
