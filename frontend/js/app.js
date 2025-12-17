@@ -8,6 +8,28 @@ let toolsTableId = localStorage.getItem('nocodb_tools_table_id') || '';
 let locationsTableId = localStorage.getItem('nocodb_locations_table_id') || '';
 let columnMap = {}; // Maps field names to column IDs
 
+// Taxonomy: Category -> Subcategory -> Type
+const SUBCATEGORY_OPTIONS = {
+    'Hand Tool': ['Wrenches', 'Screwdrivers', 'Hex/Allen', 'Pliers & Cutters', 'Hammers', 'Measuring & Layout', 'Other'],
+    'Power Tool': ['Other'],
+    'Measuring': ['Other'],
+    'Fasteners': ['Other'],
+    'Outdoor': ['Other'],
+    'Electrical': ['Other'],
+    'Plumbing': ['Other'],
+    'Other': ['Other']
+};
+
+const TYPE_OPTIONS = {
+    'Wrenches': ['Combination', 'Open-end', 'Box-end', 'Adjustable', 'Pipe', 'Crowfoot', 'Torque', 'Other'],
+    'Screwdrivers': ['Phillips', 'Flat', 'Torx', 'Robertson', 'Precision', 'Nut driver', 'Other'],
+    'Hex/Allen': ['L-keys', 'T-handle', 'Driver bits', 'Folding set', 'Other'],
+    'Pliers & Cutters': ['Needle nose', 'Lineman', 'Slip joint', 'Channel lock', 'Side cutters', 'Locking (Vise-Grip)', 'Other'],
+    'Hammers': ['Claw', 'Ball-peen', 'Dead blow', 'Mallet', 'Sledge', 'Other'],
+    'Measuring & Layout': ['Tape measure', 'Speed square', 'Combination square', 'Level', 'Chalk line', 'Plumb bob', 'Other'],
+    'Other': ['Other']
+};
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
     await initializeApp();
@@ -209,7 +231,7 @@ function addTool() {
             <form id="add-tool-form" onsubmit="saveNewTool(event)">
                 <div class="form-group">
                     <label for="tool-category">Category *</label>
-                    <select id="tool-category" required style="font-size: 24px; padding: 15px;">
+                    <select id="tool-category" required style="font-size: 24px; padding: 15px;" onchange="handleCategoryChange()">
                         <option value="">Select a category...</option>
                         <option value="Hand Tool">Hand Tool</option>
                         <option value="Power Tool">Power Tool</option>
@@ -225,12 +247,21 @@ function addTool() {
                     <label for="tool-subcategory">Sub Category</label>
                     <select id="tool-subcategory" style="font-size: 24px; padding: 15px;" onchange="handleSubcategoryChange()">
                         <option value="">Select subcategory...</option>
-                        <option value="Other">Other</option>
                     </select>
                 </div>
                 <div class="form-group" id="subcategory-other-group" style="display: none;">
                     <label for="subcategory-other">Specify subcategory</label>
                     <input type="text" id="subcategory-other" placeholder="Enter subcategory..." style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-type">Type</label>
+                    <select id="tool-type" style="font-size: 24px; padding: 15px;" onchange="handleTypeChange()">
+                        <option value="">Select type...</option>
+                    </select>
+                </div>
+                <div class="form-group" id="type-other-group" style="display: none;">
+                    <label for="type-other">Specify type</label>
+                    <input type="text" id="type-other" placeholder="Enter type..." style="font-size: 24px; padding: 15px;">
                 </div>
                 <div class="form-group">
                     <label for="tool-brand">Brand</label>
@@ -270,7 +301,7 @@ function addTool() {
             <form id="add-tool-form" onsubmit="saveNewTool(event)">
                 <div class="form-group">
                     <label for="tool-category">Category *</label>
-                    <select id="tool-category" required style="font-size: 24px; padding: 15px;">
+                    <select id="tool-category" required style="font-size: 24px; padding: 15px;" onchange="handleCategoryChange()">
                         <option value="">Select a category...</option>
                         <option value="Hand Tool">Hand Tool</option>
                         <option value="Power Tool">Power Tool</option>
@@ -286,12 +317,21 @@ function addTool() {
                     <label for="tool-subcategory">Sub Category</label>
                     <select id="tool-subcategory" style="font-size: 24px; padding: 15px;" onchange="handleSubcategoryChange()">
                         <option value="">Select subcategory...</option>
-                        <option value="Other">Other</option>
                     </select>
                 </div>
                 <div class="form-group" id="subcategory-other-group" style="display: none;">
                     <label for="subcategory-other">Specify subcategory</label>
                     <input type="text" id="subcategory-other" placeholder="Enter subcategory..." style="font-size: 24px; padding: 15px;">
+                </div>
+                <div class="form-group">
+                    <label for="tool-type">Type</label>
+                    <select id="tool-type" style="font-size: 24px; padding: 15px;" onchange="handleTypeChange()">
+                        <option value="">Select type...</option>
+                    </select>
+                </div>
+                <div class="form-group" id="type-other-group" style="display: none;">
+                    <label for="type-other">Specify type</label>
+                    <input type="text" id="type-other" placeholder="Enter type..." style="font-size: 24px; padding: 15px;">
                 </div>
                 <div class="form-group">
                     <label for="tool-brand">Brand</label>
@@ -320,23 +360,106 @@ function addTool() {
     });
 }
 
-// Handle subcategory change to show/hide "Other" input
-function handleSubcategoryChange() {
+// Handle category change to update subcategory options
+function handleCategoryChange() {
+    const categorySelect = document.getElementById('tool-category');
     const subcategorySelect = document.getElementById('tool-subcategory');
-    const otherGroup = document.getElementById('subcategory-other-group');
-    const otherInput = document.getElementById('subcategory-other');
+    const typeSelect = document.getElementById('tool-type');
     
-    if (!subcategorySelect || !otherGroup || !otherInput) {
+    if (!categorySelect || !subcategorySelect) {
         return;
     }
     
-    if (subcategorySelect.value === 'Other') {
-        otherGroup.style.display = 'block';
-        otherInput.required = true;
+    const category = categorySelect.value;
+    
+    // Clear subcategory and type
+    subcategorySelect.innerHTML = '<option value="">Select subcategory...</option>';
+    if (typeSelect) {
+        typeSelect.innerHTML = '<option value="">Select type...</option>';
+    }
+    
+    // Hide "Other" inputs
+    const subcategoryOtherGroup = document.getElementById('subcategory-other-group');
+    const typeOtherGroup = document.getElementById('type-other-group');
+    if (subcategoryOtherGroup) subcategoryOtherGroup.style.display = 'none';
+    if (typeOtherGroup) typeOtherGroup.style.display = 'none';
+    
+    // Populate subcategory options based on category
+    if (category && SUBCATEGORY_OPTIONS[category]) {
+        SUBCATEGORY_OPTIONS[category].forEach(subcat => {
+            const option = document.createElement('option');
+            option.value = subcat;
+            option.textContent = subcat;
+            subcategorySelect.appendChild(option);
+        });
+    }
+    
+    // Trigger subcategory change to update type options
+    handleSubcategoryChange();
+}
+
+// Handle subcategory change to update type options and show/hide "Other" input
+function handleSubcategoryChange() {
+    const subcategorySelect = document.getElementById('tool-subcategory');
+    const subcategoryOtherGroup = document.getElementById('subcategory-other-group');
+    const subcategoryOtherInput = document.getElementById('subcategory-other');
+    const typeSelect = document.getElementById('tool-type');
+    
+    if (!subcategorySelect) {
+        return;
+    }
+    
+    const subcategory = subcategorySelect.value;
+    
+    // Handle subcategory "Other" input
+    if (subcategoryOtherGroup && subcategoryOtherInput) {
+        if (subcategory === 'Other') {
+            subcategoryOtherGroup.style.display = 'block';
+            subcategoryOtherInput.required = true;
+        } else {
+            subcategoryOtherGroup.style.display = 'none';
+            subcategoryOtherInput.required = false;
+            subcategoryOtherInput.value = '';
+        }
+    }
+    
+    // Clear and update type options
+    if (typeSelect) {
+        typeSelect.innerHTML = '<option value="">Select type...</option>';
+        
+        // Hide type "Other" input
+        const typeOtherGroup = document.getElementById('type-other-group');
+        if (typeOtherGroup) typeOtherGroup.style.display = 'none';
+        
+        // Populate type options based on subcategory
+        if (subcategory && TYPE_OPTIONS[subcategory]) {
+            TYPE_OPTIONS[subcategory].forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = type;
+                typeSelect.appendChild(option);
+            });
+        }
+    }
+}
+
+// Handle type change to show/hide "Other" input
+function handleTypeChange() {
+    const typeSelect = document.getElementById('tool-type');
+    const typeOtherGroup = document.getElementById('type-other-group');
+    const typeOtherInput = document.getElementById('type-other');
+    
+    if (!typeSelect || !typeOtherGroup || !typeOtherInput) {
+        return;
+    }
+    
+    if (typeSelect.value === 'Other') {
+        typeOtherGroup.style.display = 'block';
+        typeOtherInput.required = true;
     } else {
-        otherGroup.style.display = 'none';
-        otherInput.required = false;
-        otherInput.value = '';
+        typeOtherGroup.style.display = 'none';
+        typeOtherInput.required = false;
+        typeOtherInput.value = '';
     }
 }
 
@@ -492,14 +615,31 @@ async function saveNewTool(event) {
         subCategoryOther = subcategoryOtherValue;
     }
     
+    const type = document.getElementById('tool-type').value;
+    const typeOtherInput = document.getElementById('type-other');
+    let typeValue = type || null;
+    let typeOther = '';
+    
+    if (type === 'Other') {
+        const typeOtherValue = typeOtherInput ? typeOtherInput.value.trim() : '';
+        if (!typeOtherValue) {
+            alert('Please specify the type.');
+            return;
+        }
+        typeValue = typeOtherValue;
+        typeOther = typeOtherValue;
+    }
+    
     const toolData = {
         'Category': document.getElementById('tool-category').value,
         'Sub Category': subcategory === 'Other' ? subCategoryOther : (subcategory || null),
+        'Type': typeValue,
         'Brand': document.getElementById('tool-brand').value || null,
         'Size / Specs': document.getElementById('tool-size').value || null,
         'Condition': document.getElementById('tool-condition').value,
         'Home Location': document.getElementById('tool-location')?.value || null,
-        'Sub Category Other': subCategoryOther
+        'Sub Category Other': subCategoryOther,
+        'Type Other': typeOther
     };
     
     try {
