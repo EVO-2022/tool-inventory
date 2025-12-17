@@ -223,7 +223,14 @@ function addTool() {
                 </div>
                 <div class="form-group">
                     <label for="tool-subcategory">Sub Category</label>
-                    <input type="text" id="tool-subcategory" placeholder="e.g., wrench, hammer" style="font-size: 24px; padding: 15px;">
+                    <select id="tool-subcategory" style="font-size: 24px; padding: 15px;" onchange="handleSubcategoryChange()">
+                        <option value="">Select subcategory...</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group" id="subcategory-other-group" style="display: none;">
+                    <label for="subcategory-other">Specify subcategory</label>
+                    <input type="text" id="subcategory-other" placeholder="Enter subcategory..." style="font-size: 24px; padding: 15px;">
                 </div>
                 <div class="form-group">
                     <label for="tool-brand">Brand</label>
@@ -277,7 +284,14 @@ function addTool() {
                 </div>
                 <div class="form-group">
                     <label for="tool-subcategory">Sub Category</label>
-                    <input type="text" id="tool-subcategory" placeholder="e.g., wrench, hammer" style="font-size: 24px; padding: 15px;">
+                    <select id="tool-subcategory" style="font-size: 24px; padding: 15px;" onchange="handleSubcategoryChange()">
+                        <option value="">Select subcategory...</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group" id="subcategory-other-group" style="display: none;">
+                    <label for="subcategory-other">Specify subcategory</label>
+                    <input type="text" id="subcategory-other" placeholder="Enter subcategory..." style="font-size: 24px; padding: 15px;">
                 </div>
                 <div class="form-group">
                     <label for="tool-brand">Brand</label>
@@ -304,6 +318,26 @@ function addTool() {
             </form>
         `);
     });
+}
+
+// Handle subcategory change to show/hide "Other" input
+function handleSubcategoryChange() {
+    const subcategorySelect = document.getElementById('tool-subcategory');
+    const otherGroup = document.getElementById('subcategory-other-group');
+    const otherInput = document.getElementById('subcategory-other');
+    
+    if (!subcategorySelect || !otherGroup || !otherInput) {
+        return;
+    }
+    
+    if (subcategorySelect.value === 'Other') {
+        otherGroup.style.display = 'block';
+        otherInput.required = true;
+    } else {
+        otherGroup.style.display = 'none';
+        otherInput.required = false;
+        otherInput.value = '';
+    }
 }
 
 function repairTool() {
@@ -445,13 +479,27 @@ async function saveNewTool(event) {
         return;
     }
     
+    const subcategory = document.getElementById('tool-subcategory').value;
+    const subcategoryOtherInput = document.getElementById('subcategory-other');
+    let subCategoryOther = '';
+    
+    if (subcategory === 'Other') {
+        const subcategoryOtherValue = subcategoryOtherInput ? subcategoryOtherInput.value.trim() : '';
+        if (!subcategoryOtherValue) {
+            alert('Please specify the subcategory.');
+            return;
+        }
+        subCategoryOther = subcategoryOtherValue;
+    }
+    
     const toolData = {
         'Category': document.getElementById('tool-category').value,
-        'Sub Category': document.getElementById('tool-subcategory').value || null,
+        'Sub Category': subcategory === 'Other' ? subCategoryOther : (subcategory || null),
         'Brand': document.getElementById('tool-brand').value || null,
         'Size / Specs': document.getElementById('tool-size').value || null,
         'Condition': document.getElementById('tool-condition').value,
-        'Home Location': document.getElementById('tool-location')?.value || null
+        'Home Location': document.getElementById('tool-location')?.value || null,
+        'Sub Category Other': subCategoryOther
     };
     
     try {
