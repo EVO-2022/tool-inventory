@@ -188,7 +188,7 @@ function findTool() {
         <h2 style="font-size: 36px; margin-bottom: 30px;">Find a Tool</h2>
         <div class="form-group">
             <label for="search-term">Search for a tool:</label>
-            <input type="text" id="search-term" placeholder="Enter tool name..." style="font-size: 28px; padding: 20px;" onkeyup="if(event.key==='Enter') performSearch()">
+            <input type="text" id="search-term" placeholder="Search by brand, type, size, or category..." style="font-size: 28px; padding: 20px;" onkeyup="if(event.key==='Enter') performSearch()">
         </div>
         <div class="form-actions">
             <button class="btn btn-primary" onclick="performSearch()">Search</button>
@@ -207,10 +207,6 @@ function addTool() {
         showModal(`
             <h2 style="font-size: 36px; margin-bottom: 30px;">Add a Tool</h2>
             <form id="add-tool-form" onsubmit="saveNewTool(event)">
-                <div class="form-group">
-                    <label for="tool-name">Tool Name *</label>
-                    <input type="text" id="tool-name" required style="font-size: 24px; padding: 15px;">
-                </div>
                 <div class="form-group">
                     <label for="tool-category">Category *</label>
                     <select id="tool-category" required style="font-size: 24px; padding: 15px;">
@@ -265,10 +261,6 @@ function addTool() {
         showModal(`
             <h2 style="font-size: 36px; margin-bottom: 30px;">Add a Tool</h2>
             <form id="add-tool-form" onsubmit="saveNewTool(event)">
-                <div class="form-group">
-                    <label for="tool-name">Tool Name *</label>
-                    <input type="text" id="tool-name" required style="font-size: 24px; padding: 15px;">
-                </div>
                 <div class="form-group">
                     <label for="tool-category">Category *</label>
                     <select id="tool-category" required style="font-size: 24px; padding: 15px;">
@@ -335,7 +327,7 @@ function moveTool() {
             <h2 style="font-size: 36px; margin-bottom: 30px;">Move a Tool</h2>
             <div class="form-group">
                 <label for="move-search">Search for tool to move:</label>
-                <input type="text" id="move-search" placeholder="Enter tool name..." style="font-size: 28px; padding: 20px;" onkeyup="searchToolsForMove(event)">
+                <input type="text" id="move-search" placeholder="Search by brand, type, size, or category..." style="font-size: 28px; padding: 20px;" onkeyup="searchToolsForMove(event)">
             </div>
             <div id="move-tools-list" class="search-results"></div>
             <div id="move-location-select" style="display: none; margin-top: 30px;">
@@ -357,7 +349,7 @@ function moveTool() {
             <h2 style="font-size: 36px; margin-bottom: 30px;">Move a Tool</h2>
             <div class="form-group">
                 <label for="move-search">Search for tool to move:</label>
-                <input type="text" id="move-search" placeholder="Enter tool name..." style="font-size: 28px; padding: 20px;" onkeyup="searchToolsForMove(event)">
+                <input type="text" id="move-search" placeholder="Search by brand, type, size, or category..." style="font-size: 28px; padding: 20px;" onkeyup="searchToolsForMove(event)">
             </div>
             <div id="move-tools-list" class="search-results"></div>
         `);
@@ -404,15 +396,31 @@ async function performSearch() {
     resultsDiv.innerHTML = '<div class="message message-info">Searching...</div>';
     
     try {
-        // Search tools by name
-        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
+        // Search tools across multiple fields (Brand, Sub Category, Size / Specs, Category)
+        // NocoDB doesn't support OR queries easily, so we'll get all tools and filter client-side
+        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}`);
         
         if (!response || !response.list) {
             resultsDiv.innerHTML = '<div class="message message-info">No tools found.</div>';
             return;
         }
         
-        const tools = response.list;
+        // Filter tools by search term across multiple fields
+        const searchLower = searchTerm.toLowerCase();
+        const tools = response.list.filter(tool => {
+            const brand = (getFieldValue(tool, 'Brand') || '').toLowerCase();
+            const subCategory = (getFieldValue(tool, 'Sub Category') || '').toLowerCase();
+            const sizeSpec = (getFieldValue(tool, 'Size / Specs') || '').toLowerCase();
+            const category = (getFieldValue(tool, 'Category') || '').toLowerCase();
+            const displayName = computeDisplayName(tool).toLowerCase();
+            
+            return brand.includes(searchLower) || 
+                   subCategory.includes(searchLower) || 
+                   sizeSpec.includes(searchLower) || 
+                   category.includes(searchLower) ||
+                   displayName.includes(searchLower);
+        });
+        
         if (tools.length === 0) {
             resultsDiv.innerHTML = '<div class="message message-info">No tools found matching your search.</div>';
             return;
@@ -438,7 +446,6 @@ async function saveNewTool(event) {
     }
     
     const toolData = {
-        'Tool Name': document.getElementById('tool-name').value,
         'Category': document.getElementById('tool-category').value,
         'Sub Category': document.getElementById('tool-subcategory').value || null,
         'Brand': document.getElementById('tool-brand').value || null,
@@ -551,17 +558,40 @@ async function searchToolsForMove(event) {
     listDiv.innerHTML = '<div class="message message-info">Searching...</div>';
     
     try {
-        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}?where=(Tool Name,like,${encodeURIComponent(`%${searchTerm}%`)})`);
+        // Search tools across multiple fields (Brand, Sub Category, Size / Specs, Category)
+        const response = await apiCall(`/data/v1/${projectId}/${toolsTableId}`);
         
-        if (!response || !response.list || response.list.length === 0) {
+        if (!response || !response.list) {
+            listDiv.innerHTML = '<div class="message message-info">No tools found.</div>';
+            return;
+        }
+        
+        // Filter tools by search term across multiple fields
+        const searchLower = searchTerm.toLowerCase();
+        const filteredTools = response.list.filter(tool => {
+            const brand = (getFieldValue(tool, 'Brand') || '').toLowerCase();
+            const subCategory = (getFieldValue(tool, 'Sub Category') || '').toLowerCase();
+            const sizeSpec = (getFieldValue(tool, 'Size / Specs') || '').toLowerCase();
+            const category = (getFieldValue(tool, 'Category') || '').toLowerCase();
+            const displayName = computeDisplayName(tool).toLowerCase();
+            
+            return brand.includes(searchLower) || 
+                   subCategory.includes(searchLower) || 
+                   sizeSpec.includes(searchLower) || 
+                   category.includes(searchLower) ||
+                   displayName.includes(searchLower);
+        });
+        
+        if (filteredTools.length === 0) {
             listDiv.innerHTML = '<div class="message message-info">No tools found.</div>';
             return;
         }
         
         let html = '';
-        response.list.forEach(tool => {
+        filteredTools.forEach(tool => {
+            const displayName = computeDisplayName(tool);
             html += `
-                <div class="tool-item" style="cursor: pointer;" onclick="selectToolForMove('${tool.Id}', '${(tool['Tool Name'] || '').replace(/'/g, "\\'")}')">
+                <div class="tool-item" style="cursor: pointer;" onclick="selectToolForMove('${tool.Id}', '${displayName.replace(/'/g, "\\'")}')">
                     ${formatToolItem(tool)}
                     <div style="margin-top: 10px; color: #3498db; font-weight: bold;">Click to select this tool</div>
                 </div>
@@ -721,19 +751,40 @@ function getFieldValue(tool, fieldName) {
     return null;
 }
 
+// Compute display name from existing fields
+function computeDisplayName(tool) {
+    const brand = getFieldValue(tool, 'Brand') || '';
+    const sizeSpec = getFieldValue(tool, 'Size / Specs') || '';
+    const toolType = getFieldValue(tool, 'Sub Category') || '';
+    
+    // Build display name from [brand, sizeSpec, toolType].filter(Boolean).join(" ")
+    const parts = [brand, sizeSpec, toolType].filter(Boolean);
+    if (parts.length > 0) {
+        return parts.join(' ');
+    }
+    
+    // Fallback: use category and/or tags
+    const category = getFieldValue(tool, 'Category') || '';
+    const tags = getFieldValue(tool, 'Tags') || '';
+    const fallbackParts = [category, tags].filter(Boolean);
+    return fallbackParts.length > 0 ? fallbackParts.join(' ') : 'Unnamed Tool';
+}
+
 // Format tool item for display
 function formatToolItem(tool) {
-    const name = getFieldValue(tool, 'Tool Name') || 'Unnamed Tool';
+    const displayName = computeDisplayName(tool);
     const category = getFieldValue(tool, 'Category') || 'Unknown';
     const condition = getFieldValue(tool, 'Condition') || 'Unknown';
     const brand = getFieldValue(tool, 'Brand') || '';
     const size = getFieldValue(tool, 'Size / Specs') || '';
+    const subCategory = getFieldValue(tool, 'Sub Category') || '';
     const location = getFieldValue(tool, 'Home Location') || '';
     const loanedOut = getFieldValue(tool, 'Loaned Out') || false;
     
     return `
-        <h3>${name}</h3>
+        <h3>${displayName}</h3>
         <p><strong>Category:</strong> ${category}</p>
+        ${subCategory ? `<p><strong>Sub Category:</strong> ${subCategory}</p>` : ''}
         ${condition ? `<p><strong>Condition:</strong> ${condition}</p>` : ''}
         ${brand ? `<p><strong>Brand:</strong> ${brand}</p>` : ''}
         ${size ? `<p><strong>Size:</strong> ${size}</p>` : ''}
